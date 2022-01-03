@@ -17,7 +17,9 @@
     [day8.re-frame-10x.panels.settings.subs                       :as settings.subs]
     [day8.re-frame-10x.panels.app-db.events                       :as app-db.events]
     [day8.re-frame-10x.panels.app-db.subs                         :as app-db.subs]
-    [day8.re-frame-10x.tools.coll                                 :as tools.coll]))
+    [day8.re-frame-10x.panels.event.events                        :as event.events]
+    [day8.re-frame-10x.tools.coll                                 :as tools.coll]
+    [day8.re-frame-10x.fx.clipboard                               :as clipboard]))
 
 (def pod-gap "-1px") ;; Overlap pods by 1px to avoid adjoining borders causing 2px borders
 (def pod-padding "0px")
@@ -37,7 +39,14 @@
 (defn panel-header []
   [rc/h-box
    :align    :center
-   :children [[path-inspector-button]]])
+   :gap "1"
+   :children [[path-inspector-button]
+              [buttons/icon
+               {:icon     [material/content-copy]
+                :label    "requires"
+                :title    "Copy to the clipboard, the require form to set things up for the \"repl\" links below"
+                :on-click #(do (clipboard/copy! "(require '[day8.re-frame-10x.components.cljs-devtools])")
+                               (rf/dispatch [::event.events/repl-msg-state :start]))}]]])
 
 (def pod-border-edge (str "1px solid " styles/nord4))
 
@@ -62,7 +71,7 @@
      :attr       attr
      :children   children]))
 
-(defn pod-header [{:keys [id path-str open? diff?]}]
+(defn pod-header [{:keys [id path-str open? diff? sort?]} data]
   (let [ambiance @(rf/subscribe [::settings.subs/ambiance])]
     [rc/h-box
      :class    (styles/section-header ambiance)
@@ -112,24 +121,44 @@
                      :margin-top  "1px"}
          :on-change #(rf/dispatch [::app-db.events/set-diff-visibility id (not diff?)])]]]
       [pod-header-section
+       :width    "49px"
+       :justify  :center
+       :align    :center
+       :attr     {:on-click (handler-fn (rf/dispatch [::app-db.events/set-sort-form? id (not sort?)]))}
+       :children
+       [[rc/checkbox
+         :model sort?
+         :label ""
+         :on-change #(rf/dispatch [::app-db.events/set-sort-form? id (not sort?)])]]]
+      [pod-header-section
        :width    styles/gs-50s
        :justify  :center
-       :last?    true
        :children
        [[buttons/icon
          {:icon     [material/close]
           :title    "Remove this inspector"
-          :on-click #(rf/dispatch [::app-db.events/remove-path id])}]]]]]))
+          :on-click #(rf/dispatch [::app-db.events/remove-path id])}]]]
+      [pod-header-section
+       :width    styles/gs-31s
+       :justify  :center
+       :last?    true
+       :children
+       [[rc/box
+         :style {:margin "auto"}
+         :child
+         [buttons/icon {:icon [material/print]
+                        :on-click #(js/console.log data)}]]]]]]))
 
 (def diff-url "https://github.com/day8/re-frame-10x/blob/master/docs/HyperlinkedInformation/Diffs.md")
 
-(defn pod [{:keys [path open? diff?] :as pod-info}]
+(defn pod [{:keys [id path open? diff? sort?] :as pod-info}]
   (let [ambiance     @(rf/subscribe [::settings.subs/ambiance])
         render-diff? (and open? diff?)
-        app-db-after (rf/subscribe [::app-db.subs/current-epoch-app-db-after])]
+        app-db-after (rf/subscribe [::app-db.subs/current-epoch-app-db-after])
+        data         (tools.coll/get-in-with-lists @app-db-after path)]
     [rc/v-box
      :children
-     [[pod-header pod-info]
+     [[pod-header pod-info data]
       [rc/v-box
        :class (when open? (styles/pod-border ambiance))
        :children
@@ -140,9 +169,11 @@
                    :overflow-x "auto"
                    :overflow-y "hidden"}
            :children
-           [[cljs-devtools/simple-render
-             (tools.coll/get-in-with-lists @app-db-after path)
-             ["app-db-path" path]]]])
+           [[cljs-devtools/simple-render-with-path-annotations
+             data
+             ["app-db-path" path]
+             {:update-path-fn [::app-db.events/update-path id]
+              :sort? sort?}]]])
         (when render-diff?
           (let [app-db-before (rf/subscribe [::app-db.subs/current-epoch-app-db-before])
                 [diff-before diff-after _] (when render-diff?
@@ -220,7 +251,15 @@
     [rc/box
      :width   styles/gs-50s                                ;;  50px + 1 border
      :justify :center
+     :child   [rc/label :style {:font-size "9px"} :label "SORT"]]
+    [rc/box
+     :width   styles/gs-50s                                ;;  50px + 1 border
+     :justify :center
      :child   [rc/label :style {:font-size "9px"} :label "DELETE"]]
+    [rc/box
+     :width   styles/gs-31s                                ;;  31px + 1 border
+     :justify :center
+     :child   [rc/label :style {:font-size "9px"} :label ""]]
     [rc/gap-f :size styles/gs-2s]
     #_[rc/gap-f :size "6px"]]])                     ;; Add extra space to look better when there is/aren't scrollbars
 
